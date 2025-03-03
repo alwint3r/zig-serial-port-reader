@@ -1,9 +1,6 @@
 const std = @import("std");
 const native_os = @import("builtin").os.tag;
-// re-implement this here since the std.posix.T.ior is not marked as pub
-fn ior(inout: u32, group: usize, num: usize, len: usize) usize {
-    return (inout | ((len & 0x1fff) << 16) | ((group) << 8) | (num));
-}
+const ioctl = @import("ioctl.zig");
 
 const SerialPort = struct {
     path: []const u8,
@@ -33,6 +30,7 @@ const SerialPort = struct {
         self.fd = try std.posix.open(path, flag, 0);
     }
 
+    /// Doesn't work on macOS with ReleaseSafe, ReleaseSmall, and Debug build mode
     pub fn reset(self: *SerialPort) !void {
         const fd = self.fd orelse {
             return error.InvalidFileDescriptor;
@@ -40,38 +38,22 @@ const SerialPort = struct {
         switch (native_os) {
             .macos => {
                 var status: c_int = 0;
-                const IOCMGET = ior(
-                    0x40000000,
-                    't',
-                    106,
-                    @sizeOf(c_int),
-                );
-                const IOCMSET = ior(
-                    0x80000000,
-                    't',
-                    109,
-                    @sizeOf(c_int),
-                );
-
                 var ret: c_int = undefined;
 
-                ret = std.c.ioctl(fd, @intCast(IOCMGET), &status);
+                ret = ioctl.ioctl(fd, ioctl.TIOCM.GET, &status);
                 if (ret == -1) {
                     return error.FailedToGetIOCM;
                 }
 
-                status &= ~@as(c_int, 2);
-                // This won't work on Debug or ReleaseSafe build as the IOCMSET
-                // will be truncated and the ioctl will trigger panic.
-                // Welcome to the dark side (C).
-                ret = std.c.ioctl(fd, @intCast(IOCMSET), &status);
+                status &= ~ioctl.TIOCM_DTR;
+                ret = ioctl.ioctl(fd, ioctl.TIOCM.SET, &status);
                 if (ret == -1) {
                     return error.FailedToSetIOCM;
                 }
 
                 std.time.sleep(100_000_000);
-                status |= @as(c_int, 2);
-                ret = std.c.ioctl(fd, @intCast(IOCMSET), &status);
+                status |= ioctl.TIOCM_DTR;
+                ret = ioctl.ioctl(fd, ioctl.TIOCM.SET, &status);
                 if (ret == -1) {
                     return error.FailedToSetIOCM;
                 }
