@@ -2,6 +2,8 @@ const std = @import("std");
 const native_os = @import("builtin").os.tag;
 const ioctl = @import("ioctl.zig");
 
+extern fn darwin_reset_port_dtr(fd: c_int) callconv(.C) c_int;
+
 const SerialPort = struct {
     path: []const u8,
     baud: std.posix.speed_t,
@@ -201,7 +203,10 @@ pub fn main() !void {
         },
 
         .Reset => {
-            try port.reset();
+            const res = darwin_reset_port_dtr(@intCast(port.fd.?));
+            if (res != 0) {
+                return error.FailedToResetPort;
+            }
             std.log.info("Port reset successfully.", .{});
         },
     }
